@@ -33,7 +33,7 @@ Updates are manual: run the same commands again. Uninstall with
 - Eye button in the Source Control title bar turns tidy mode on and tidies. Eye-closed button
   turns it off and expands all repositories.
 - `SCM Tidy: Tidy Now` tidies again, for example after committing.
-- Every run logs its steps to the `SCM Tidy` output channel.
+- Every run logs its steps to the `SCM Tidy` output channel without opening it.
 - `SCM Tidy: Show Computed Repository Order` lists the computed order and the expand/collapse
   decision in the `SCM Tidy` output channel. Compare it with the view if the wrong repositories
   expand.

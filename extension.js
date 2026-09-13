@@ -234,7 +234,6 @@ async function activate(context) {
   );
 
   async function runTidy() {
-    output.show(true);
     log('command: tidy');
     try {
       await tidy(await gitReady, { restoreEditorFocus: false });

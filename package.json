@@ -2,7 +2,7 @@
   "name": "scm-tidy",
   "displayName": "SCM Tidy",
   "description": "Collapse clean repositories in the Source Control view, keep repositories with changes or pending sync expanded.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "dxmann73",
   "private": true,
   "license": "MIT",
