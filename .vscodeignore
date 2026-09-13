@@ -1,0 +1,8 @@
+.github/**
+.gitignore
+.markdownlint.json
+.markdownlintignore
+.vscodeignore
+AGENTS.md
+CLAUDE.md
+*.vsix

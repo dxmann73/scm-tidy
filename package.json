@@ -1,0 +1,83 @@
+{
+  "name": "scm-tidy",
+  "displayName": "SCM Tidy",
+  "description": "Collapse clean repositories in the Source Control view, keep repositories with changes or pending sync expanded.",
+  "version": "0.0.1",
+  "publisher": "dxmann73",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dxmann73/scm-tidy.git"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "scmTidy.enable",
+        "title": "SCM Tidy: Collapse Clean Repositories",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "scmTidy.disable",
+        "title": "SCM Tidy: Expand All Repositories",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "scmTidy.tidy",
+        "title": "SCM Tidy: Tidy Now"
+      },
+      {
+        "command": "scmTidy.showOrder",
+        "title": "SCM Tidy: Show Computed Repository Order"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "scmTidy.enable",
+          "when": "view == workbench.scm && !scmTidy.enabled",
+          "group": "navigation@100"
+        },
+        {
+          "command": "scmTidy.disable",
+          "when": "view == workbench.scm && scmTidy.enabled",
+          "group": "navigation@100"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SCM Tidy",
+      "properties": {
+        "scmTidy.runOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Tidy once after startup when tidy mode is on. Focuses the Source Control view. Untested."
+        },
+        "scmTidy.startupDelayMs": {
+          "type": "number",
+          "default": 3000,
+          "description": "Wait this long after the last repository opens before the startup tidy."
+        },
+        "scmTidy.stepDelayMs": {
+          "type": "number",
+          "default": 30,
+          "description": "Pause between tree navigation commands."
+        }
+      }
+    }
+  }
+}
