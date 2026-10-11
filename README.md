@@ -30,9 +30,10 @@ Updates are manual: run the same commands again. Uninstall with
 
 ## Use
 
-- Eye button in the Source Control title bar turns tidy mode on and tidies. Eye-closed button
-  turns it off and expands all repositories.
-- `SCM Tidy: Tidy Now` tidies again, for example after committing.
+- Eye button in the Source Control title bar shows only repositories that need attention and
+  expands them. Press it again later to refresh, for example after a repository gains changes.
+  Expand all repositories with VS Code's built-in Collapse All / Expand All title buttons.
+- `SCM Tidy: Show Repositories With Changes` runs the same tidy from the command palette.
 - Every run logs its steps to the `SCM Tidy` output channel without opening it.
 - `SCM Tidy: Show Computed Repository Order` lists the computed order and the expand/collapse
   decision in the `SCM Tidy` output channel. Compare it with the view if the wrong repositories
@@ -59,7 +60,7 @@ hidden through the Repositories view also shift rows: the Git API cannot tell wh
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `scmTidy.runOnStartup` | `false` | Tidy after startup when tidy mode is on (untested) |
+| `scmTidy.runOnStartup` | `false` | Tidy after startup (untested) |
 | `scmTidy.startupDelayMs` | `3000` | Quiet period after the last repository opens |
 | `scmTidy.stepDelayMs` | `30` | Pause between tree navigation commands |
 
@@ -74,7 +75,7 @@ hidden through the Repositories view also shift rows: the Git API cannot tell wh
 Bump `version` in `package.json`, commit, then tag and push:
 
 ```bash
-git tag v0.0.2 && git push origin main v0.0.2
+git tag v0.0.3 && git push origin main v0.0.3
 ```
 
 The `release` workflow checks that the tag matches `package.json`, packages the `.vsix` with

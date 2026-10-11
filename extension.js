@@ -11,7 +11,6 @@
 const vscode = require('vscode');
 const path = require('path');
 
-const ENABLED_KEY = 'scmTidy.enabled';
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 let running = false;
@@ -192,11 +191,6 @@ async function tidy(git, { restoreEditorFocus }) {
   }
 }
 
-async function setEnabled(context, enabled) {
-  await context.globalState.update(ENABLED_KEY, enabled);
-  await vscode.commands.executeCommand('setContext', ENABLED_KEY, enabled);
-}
-
 // Resolve once no repository has opened for delayMs.
 function waitForRepositoriesToSettle(git, delayMs) {
   return new Promise((resolve) => {
@@ -223,8 +217,6 @@ async function activate(context) {
   output = vscode.window.createOutputChannel('SCM Tidy');
   context.subscriptions.push(output);
   log('activate');
-  const enabled = context.globalState.get(ENABLED_KEY, false);
-  await vscode.commands.executeCommand('setContext', ENABLED_KEY, enabled);
 
   // Register commands before waiting on Git, so a slow Git start never swallows them.
   const gitReady = getGitApi();
@@ -243,15 +235,6 @@ async function activate(context) {
   }
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('scmTidy.enable', async () => {
-      await setEnabled(context, true);
-      await runTidy();
-    }),
-    vscode.commands.registerCommand('scmTidy.disable', async () => {
-      log('command: disable, expand all');
-      await setEnabled(context, false);
-      await vscode.commands.executeCommand('workbench.scm.action.expandAllRepositories');
-    }),
     vscode.commands.registerCommand('scmTidy.tidy', runTidy),
     vscode.commands.registerCommand('scmTidy.showOrder', async () => {
       try {
@@ -272,7 +255,7 @@ async function activate(context) {
   );
 
   const config = vscode.workspace.getConfiguration('scmTidy');
-  if (enabled && config.get('runOnStartup')) {
+  if (config.get('runOnStartup')) {
     gitReady
       .then(async (git) => {
         await waitForRepositoriesToSettle(git, config.get('startupDelayMs'));

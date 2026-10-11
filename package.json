@@ -2,7 +2,7 @@
   "name": "scm-tidy",
   "displayName": "SCM Tidy",
   "description": "Collapse clean repositories in the Source Control view, keep repositories with changes or pending sync expanded.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "dxmann73",
   "private": true,
   "license": "MIT",
@@ -27,18 +27,9 @@
   "contributes": {
     "commands": [
       {
-        "command": "scmTidy.enable",
-        "title": "SCM Tidy: Collapse Clean Repositories",
-        "icon": "$(eye)"
-      },
-      {
-        "command": "scmTidy.disable",
-        "title": "SCM Tidy: Expand All Repositories",
-        "icon": "$(eye-closed)"
-      },
-      {
         "command": "scmTidy.tidy",
-        "title": "SCM Tidy: Tidy Now"
+        "title": "SCM Tidy: Show Repositories With Changes",
+        "icon": "$(eye)"
       },
       {
         "command": "scmTidy.showOrder",
@@ -48,13 +39,8 @@
     "menus": {
       "scm/title": [
         {
-          "command": "scmTidy.enable",
-          "when": "view == workbench.scm && !scmTidy.enabled",
-          "group": "navigation@100"
-        },
-        {
-          "command": "scmTidy.disable",
-          "when": "view == workbench.scm && scmTidy.enabled",
+          "command": "scmTidy.tidy",
+          "when": "view == workbench.scm",
           "group": "navigation@100"
         }
       ]
@@ -65,7 +51,7 @@
         "scmTidy.runOnStartup": {
           "type": "boolean",
           "default": false,
-          "description": "Tidy once after startup when tidy mode is on. Focuses the Source Control view. Untested."
+          "description": "Tidy once after startup. Focuses the Source Control view. Untested."
         },
         "scmTidy.startupDelayMs": {
           "type": "number",
