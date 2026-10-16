@@ -34,10 +34,8 @@ Updates are manual: run the same commands again. Uninstall with
   expands them. Press it again later to refresh, for example after a repository gains changes.
   Expand all repositories with VS Code's built-in Collapse All / Expand All title buttons.
 - `SCM Tidy: Show Repositories With Changes` runs the same tidy from the command palette.
-- Every run logs its steps to the `SCM Tidy` output channel without opening it.
-- `SCM Tidy: Show Computed Repository Order` lists the computed order and the expand/collapse
-  decision in the `SCM Tidy` output channel. Compare it with the view if the wrong repositories
-  expand.
+- Every run logs its steps and the observed row order to the `SCM Tidy` output channel without
+  opening it.
 
 ## How it works
 
@@ -45,16 +43,23 @@ VS Code has no extension API to collapse a single repository in the Source Contr
 extension works around this:
 
 1. Focus the Source Control view (`workbench.scm.focus`).
-2. Collapse every repository (`workbench.scm.action.collapseAllRepositories`).
-3. Compute the row order of all open repositories by replicating VS Code's sort for
-   `scm.repositories.sortOrder`. `discovery time` uses workspace folder order.
-4. Walk the rows bottom-up with `list.focusFirst` / `list.focusDown` and run `list.expand` on each
-   repository that needs attention.
+2. Collapse every repository (`workbench.scm.action.collapseAllRepositories`), so every remaining
+   row is a repository row.
+3. Move to the last row (`list.focusLast`) and walk up. On each row, `list.select` selects it as
+   if from the keyboard. That focuses the repository in Git (`repo.ui.selected`). Hidden
+   repositories never appear, and the walk follows the order the view actually shows, including
+   the sort chosen in the Source Control "..." menu.
+4. `list.select` toggles collapse unless `workbench.tree.expandMode` is `doubleClick`.
+   `list.expand` on an already expanded row moves focus to the first child, and `list.collapse`
+   on an already collapsed row moves to the parent, so those commands run only when the row is
+   not already in the wanted state. `list.focusUp` then moves to the previous repository row
+   because children sit below their parent.
+5. Stop when `list.select` identifies the same repository as the previous row: focus did not
+   move, so the top was reached. Restore the originally selected repository when nothing expanded
+   sits above it.
 
-**Fragile by design.** If the computed order differs from the view, the wrong repositories get
-expanded. Sorting chosen through the Source Control "..." menu is stored in workspace state the
-extension cannot read; it only follows the `scm.repositories.sortOrder` setting. Repositories
-hidden through the Repositories view also shift rows: the Git API cannot tell which are shown.
+**Fragile by design.** The walk depends on `list.select` focusing a Git repository and on the
+built-in list commands. A VS Code update that changes that chain or the tree layout breaks it.
 
 ## Settings
 
@@ -63,6 +68,7 @@ hidden through the Repositories view also shift rows: the Git API cannot tell wh
 | `scmTidy.runOnStartup` | `false` | Tidy after startup (untested) |
 | `scmTidy.startupDelayMs` | `3000` | Quiet period after the last repository opens |
 | `scmTidy.stepDelayMs` | `30` | Pause between tree navigation commands |
+| `scmTidy.selectTimeoutMs` | `500` | Wait for Git to report the focused repository after `list.select` |
 
 ## Limits
 

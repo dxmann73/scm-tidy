@@ -2,16 +2,17 @@
 //
 // VS Code has no API to collapse a single repository node. This extension
 // collapses all repositories with the built-in command, then walks the SCM
-// tree with list navigation commands and expands the rows that need
-// attention. Row positions are computed by replicating VS Code's repository
-// sort (scmViewService.ts compareRepositories). If that replica drifts from
-// VS Code, the wrong rows get expanded; use "Show Computed Repository Order"
-// to compare.
+// tree bottom-up. list.select focuses a row as if from the keyboard, which
+// makes Git set repo.ui.selected on the repository for that row. Hidden
+// repositories never appear, so the walk sees the view's order instead of
+// guessing it from scm.repositories.sortOrder. list.select toggles collapse
+// unless workbench.tree.expandMode is doubleClick. list.expand on an already
+// expanded row moves focus to the first child; list.collapse on an already
+// collapsed row moves to the parent. Only send the command when the row is
+// not already in the wanted state.
 
 const vscode = require('vscode');
 const path = require('path');
-
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 let running = false;
 
@@ -19,30 +20,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Mirrors compareFileNames in src/vs/base/common/comparers.ts.
-function compareFileNames(a, b) {
-  const result = collator.compare(a, b);
-  if (result === 0 && a !== b) {
-    return a < b ? -1 : 1;
-  }
-  return result;
-}
-
-// Mirrors comparePaths: segment by segment, shorter path first on equal prefix.
-function comparePaths(a, b) {
-  const partsA = a.split(path.sep);
-  const partsB = b.split(path.sep);
-  const length = Math.min(partsA.length, partsB.length);
-  for (let i = 0; i < length; i++) {
-    const result = compareFileNames(partsA[i], partsB[i]);
-    if (result !== 0) {
-      return result;
-    }
-  }
-  return partsA.length - partsB.length;
-}
-
-// Mirrors getRepositoryName: workspace folder name for root repos, else basename.
 function repositoryName(repo) {
   const folder = vscode.workspace.getWorkspaceFolder(repo.rootUri);
   if (folder && folder.uri.toString() === repo.rootUri.toString()) {
@@ -51,38 +28,16 @@ function repositoryName(repo) {
   return path.basename(repo.rootUri.fsPath);
 }
 
-function workspaceFolderIndex(repo) {
-  const folder = vscode.workspace.getWorkspaceFolder(repo.rootUri);
-  if (!folder) {
-    throw new Error(`SCM Tidy: repository outside workspace folders: ${repo.rootUri.fsPath}`);
-  }
-  return folder.index;
+function repositoryKey(repo) {
+  return repo.rootUri.toString();
 }
 
-function sortRepositories(git) {
-  const sortOrder = vscode.workspace.getConfiguration('scm').get('repositories.sortOrder');
-  // repo.ui.selected is true for one repository only, so it cannot tell which
-  // repositories the view shows. Assume all are visible.
-  const visible = [...git.repositories];
-  switch (sortOrder) {
-    case 'discovery time':
-      // Discovery follows workspace folder order. Git API order breaks ties,
-      // e.g. nested repositories inside one folder.
-      return visible
-        .map((repo, openIndex) => ({ repo, openIndex, folderIndex: workspaceFolderIndex(repo) }))
-        .sort((a, b) => a.folderIndex - b.folderIndex || a.openIndex - b.openIndex)
-        .map(({ repo }) => repo);
-    case 'path':
-      return [...visible].sort((a, b) => comparePaths(a.rootUri.fsPath, b.rootUri.fsPath));
-    case 'name':
-      return [...visible].sort(
-        (a, b) =>
-          compareFileNames(repositoryName(a), repositoryName(b)) ||
-          comparePaths(a.rootUri.fsPath, b.rootUri.fsPath),
-      );
-    default:
-      throw new Error(`SCM Tidy: unsupported scm.repositories.sortOrder "${sortOrder}"`);
-  }
+function sameRepository(a, b) {
+  return repositoryKey(a) === repositoryKey(b);
+}
+
+function selectedRepositories(git) {
+  return git.repositories.filter((repo) => repo.ui.selected);
 }
 
 function attentionReasons(repo) {
@@ -140,6 +95,145 @@ async function run(command, stepDelayMs) {
   await sleep(stepDelayMs);
 }
 
+function describeSelection(selected) {
+  return selected.map((repo) => `${repositoryName(repo)} ${repo.rootUri.fsPath}`).join(', ');
+}
+
+function rejectSelectionCount(selected, context) {
+  if (selected.length === 0) {
+    const error = new Error(`SCM Tidy: no repository selected ${context}`);
+    error.code = 'scmTidy.noSelection';
+    return error;
+  }
+  return new Error(
+    `SCM Tidy: ${selected.length} repositories selected ${context}: ${describeSelection(selected)}`,
+  );
+}
+
+function selectAndIdentify(git, timeoutMs) {
+  const listeners = [];
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let timer;
+    const finish = (action) => {
+      if (done) {
+        return;
+      }
+      done = true;
+      clearTimeout(timer);
+      listeners.forEach((listener) => listener.dispose());
+      action();
+    };
+
+    const onChange = () => {
+      const selected = selectedRepositories(git);
+      // ExtHost sets the new source control selected before clearing the old
+      // one, so onDidChange can run with two selected. Keep waiting.
+      if (selected.length === 1) {
+        finish(() => resolve({ repo: selected[0], via: 'event' }));
+      }
+    };
+
+    for (const repo of git.repositories) {
+      listeners.push(repo.ui.onDidChange(onChange));
+    }
+
+    vscode.commands.executeCommand('list.select').then(
+      () => {
+        if (done) {
+          return;
+        }
+        timer = setTimeout(() => {
+          const selected = selectedRepositories(git);
+          if (selected.length === 1) {
+            finish(() => resolve({ repo: selected[0], via: 'timeout' }));
+            return;
+          }
+          finish(() => reject(rejectSelectionCount(selected, 'after list.select')));
+        }, timeoutMs);
+      },
+      (error) => finish(() => reject(error)),
+    );
+  });
+}
+
+function readSelectToggles() {
+  const expandMode = vscode.workspace.getConfiguration('workbench').get('tree.expandMode');
+  if (expandMode !== 'singleClick' && expandMode !== 'doubleClick') {
+    throw new Error(`SCM Tidy: unsupported workbench.tree.expandMode "${expandMode}"`);
+  }
+  log(`workbench.tree.expandMode: ${expandMode}`);
+  return expandMode !== 'doubleClick';
+}
+
+async function applyRowState(repo, expandedBefore, selectToggles, stepDelayMs) {
+  const reasons = attentionReasons(repo);
+  const desired = reasons.length > 0;
+  const expanded = selectToggles ? !expandedBefore : expandedBefore;
+  if (desired && !expanded) {
+    log(`    expand (${reasons.join(', ')})`);
+    await run('list.expand', stepDelayMs);
+    return;
+  }
+  if (!desired && expanded) {
+    log('    collapse');
+    await run('list.collapse', stepDelayMs);
+    return;
+  }
+  if (desired) {
+    log(`    already expanded (${reasons.join(', ')})`);
+    return;
+  }
+  log('    already collapsed');
+}
+
+async function restoreOriginalSelection(
+  git,
+  originallySelected,
+  rowsBottomToTop,
+  stepDelayMs,
+  selectTimeoutMs,
+  selectToggles,
+) {
+  if (!originallySelected) {
+    log('restore selection: nothing was selected before the walk');
+    return;
+  }
+  const key = repositoryKey(originallySelected);
+  const rowsTopToBottom = [...rowsBottomToTop].reverse();
+  const index = rowsTopToBottom.findIndex((repo) => repositoryKey(repo) === key);
+  if (index < 0) {
+    log(`restore selection: ${repositoryName(originallySelected)} not visible, skip`);
+    return;
+  }
+  if (index === 0) {
+    log(`restore selection: already on ${repositoryName(originallySelected)}`);
+    return;
+  }
+  const blockers = rowsTopToBottom
+    .slice(0, index)
+    .filter((repo) => attentionReasons(repo).length > 0);
+  if (blockers.length > 0) {
+    log(
+      `restore selection: skip ${repositoryName(originallySelected)}, expanded ${blockers.map(repositoryName).join(', ')} sit above it`,
+    );
+    return;
+  }
+  log(`restore selection: move down ${index} to ${repositoryName(originallySelected)}`);
+  for (let step = 0; step < index; step++) {
+    await run('list.focusDown', stepDelayMs);
+  }
+  const { repo, via } = await selectAndIdentify(git, selectTimeoutMs);
+  if (repositoryKey(repo) !== key) {
+    throw new Error(
+      `SCM Tidy: restore selection landed on ${repositoryName(repo)} instead of ${repositoryName(originallySelected)}`,
+    );
+  }
+  const desired = attentionReasons(repo).length > 0;
+  await applyRowState(repo, desired, selectToggles, stepDelayMs);
+  log(`restore selection: ${repositoryName(repo)} (${via})`);
+}
+
 async function tidy(git, { restoreEditorFocus }) {
   if (running) {
     log('tidy already running, skipped');
@@ -147,40 +241,81 @@ async function tidy(git, { restoreEditorFocus }) {
   }
   running = true;
   try {
-    const stepDelayMs = vscode.workspace.getConfiguration('scmTidy').get('stepDelayMs');
-    const sortOrder = vscode.workspace.getConfiguration('scm').get('repositories.sortOrder');
-    log(`tidy: git state ${git.state}, ${git.repositories.length} repositories, sortOrder "${sortOrder}"`);
-    const repos = sortRepositories(git);
-    log(`tidy: ${repos.length} visible repositories`);
+    const config = vscode.workspace.getConfiguration('scmTidy');
+    const stepDelayMs = config.get('stepDelayMs');
+    const selectTimeoutMs = config.get('selectTimeoutMs');
+    const selectToggles = readSelectToggles();
+    const initiallySelected = selectedRepositories(git);
+    if (initiallySelected.length > 1) {
+      throw rejectSelectionCount(initiallySelected, 'before walk');
+    }
+    const originallySelected = initiallySelected[0];
+    log(
+      `tidy: git state ${git.state}, ${git.repositories.length} repositories, originally selected ${originallySelected ? repositoryName(originallySelected) : '(none)'}`,
+    );
     // With one visible repository, the SCM tree shows no repository rows.
-    if (repos.length < 2) {
-      log('tidy: fewer than 2 visible repositories, nothing to do');
+    // git.repositories also includes hidden repos, so a later walk may still
+    // find a single row or none; those cases are handled in the loop.
+    if (git.repositories.length < 2) {
+      log('tidy: fewer than 2 repositories, nothing to do');
       return;
     }
-    repos.forEach((repo, index) => {
-      const reasons = attentionReasons(repo);
-      log(`  row ${index}: ${repositoryName(repo)} ${reasons.length ? `expand (${reasons.join(', ')})` : 'collapse'}`);
-    });
     const hadEditor = vscode.window.activeTextEditor !== undefined;
 
     log('run workbench.scm.focus');
     await run('workbench.scm.focus', stepDelayMs);
     log('run workbench.scm.action.collapseAllRepositories');
     await run('workbench.scm.action.collapseAllRepositories', stepDelayMs);
+    log('run list.focusLast');
+    await run('list.focusLast', stepDelayMs);
 
-    // Bottom-up, so expanding a row never shifts the rows still to visit.
-    for (let index = repos.length - 1; index >= 0; index--) {
-      if (attentionReasons(repos[index]).length === 0) {
-        continue;
+    const rows = [];
+    let previous;
+    const limit = git.repositories.length + 1;
+    for (let iteration = 1; iteration <= limit; iteration++) {
+      let identified;
+      try {
+        identified = await selectAndIdentify(git, selectTimeoutMs);
+      } catch (error) {
+        if (iteration === 1 && error && error.code === 'scmTidy.noSelection') {
+          log('tidy: no repository rows, nothing to do');
+          if (restoreEditorFocus && hadEditor) {
+            await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+          }
+          return;
+        }
+        throw error;
       }
-      log(`expand row ${index}: ${repositoryName(repos[index])}`);
-      await run('list.focusFirst', stepDelayMs);
-      for (let step = 0; step < index; step++) {
-        await run('list.focusDown', stepDelayMs);
+      const { repo, via } = identified;
+      log(`  row ${iteration}: ${repositoryName(repo)} ${repo.rootUri.fsPath} (${via})`);
+      const isTop = previous !== undefined && sameRepository(previous, repo);
+      const desired = attentionReasons(repo).length > 0;
+      // Newly reached rows are collapsed. The duplicate top row is already in
+      // its desired state from the previous visit.
+      const expandedBefore = isTop ? desired : false;
+      await applyRowState(repo, expandedBefore, selectToggles, stepDelayMs);
+      if (isTop) {
+        log('walk: top reached');
+        break;
       }
-      await run('list.expand', stepDelayMs);
+      rows.push(repo);
+      previous = repo;
+      if (iteration === limit) {
+        throw new Error(`SCM Tidy: row walk exceeded ${limit} iterations`);
+      }
+      log('run list.focusUp');
+      await run('list.focusUp', stepDelayMs);
     }
-    await run('list.focusFirst', stepDelayMs);
+
+    log(`walk: ${rows.length} repository rows`);
+    await restoreOriginalSelection(
+      git,
+      originallySelected,
+      rows,
+      stepDelayMs,
+      selectTimeoutMs,
+      selectToggles,
+    );
     log('tidy: done');
 
     if (restoreEditorFocus && hadEditor) {
@@ -234,25 +369,7 @@ async function activate(context) {
     }
   }
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('scmTidy.tidy', runTidy),
-    vscode.commands.registerCommand('scmTidy.showOrder', async () => {
-      try {
-        const git = await gitReady;
-        const sortOrder = vscode.workspace.getConfiguration('scm').get('repositories.sortOrder');
-        log("command: show order");
-        output.appendLine(`scm.repositories.sortOrder: ${sortOrder}`);
-        sortRepositories(git).forEach((repo, index) => {
-          const reasons = attentionReasons(repo);
-          const status = reasons.length ? `expand (${reasons.join(', ')})` : 'collapse';
-          output.appendLine(`${index + 1}. ${repositoryName(repo)}  ${status}  ${repo.rootUri.fsPath}`);
-        });
-        output.show(true);
-      } catch (error) {
-        reportError(error);
-      }
-    }),
-  );
+  context.subscriptions.push(vscode.commands.registerCommand('scmTidy.tidy', runTidy));
 
   const config = vscode.workspace.getConfiguration('scmTidy');
   if (config.get('runOnStartup')) {

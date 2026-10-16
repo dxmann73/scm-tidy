@@ -30,10 +30,6 @@
         "command": "scmTidy.tidy",
         "title": "SCM Tidy: Show Repositories With Changes",
         "icon": "$(eye)"
-      },
-      {
-        "command": "scmTidy.showOrder",
-        "title": "SCM Tidy: Show Computed Repository Order"
       }
     ],
     "menus": {
@@ -62,6 +58,11 @@
           "type": "number",
           "default": 30,
           "description": "Pause between tree navigation commands."
+        },
+        "scmTidy.selectTimeoutMs": {
+          "type": "number",
+          "default": 500,
+          "description": "How long to wait for Git to report the focused repository after list.select."
         }
       }
     }

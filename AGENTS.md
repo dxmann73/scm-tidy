@@ -19,8 +19,13 @@ JavaScript, CommonJS, no runtime dependencies, no build step.
 ## Conventions
 
 - VS Code has no API to collapse single SCM repositories. The extension drives the tree with
-  `list.*` commands and replicates VS Code's repository sort. Check behavior against VS Code
-  source (`src/vs/workbench/contrib/scm/browser/`) before changing sort or menu logic.
+  `list.*` commands: collapse all, then walk rows bottom-up. `list.select` makes Git set
+  `repo.ui.selected` on the focused repository. `list.select` toggles collapse unless
+  `workbench.tree.expandMode` is `doubleClick`. Do not send `list.expand` / `list.collapse` to a
+  row already in that state: expand on an expanded row moves focus to the first child, collapse
+  on a collapsed row moves to the parent. Check behavior against VS Code source
+  (`src/vs/workbench/contrib/scm/browser/` and `src/vs/workbench/browser/actions/listCommands.ts`)
+  before changing walk or menu logic.
 - Title bar buttons belong in the `scm/title` menu with `view == workbench.scm`; without that
   clause they also render on every repository row.
 - Log each step to the `SCM Tidy` output channel. No silent early returns.
