@@ -1,3 +1,4 @@
 plans/
 *-plan.md
 node_modules/
+.firecrawl/
